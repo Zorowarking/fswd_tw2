@@ -1,0 +1,310 @@
+// CampusServe - Smart Campus Service Booking and Management System
+// Complete Production-Ready Database Schema for Neon PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Role {
+  STUDENT
+  SERVICE_PROVIDER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  UPI
+  CARD
+  NET_BANKING
+  CAMPUS_WALLET
+  CASH
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum NotificationType {
+  BOOKING_CREATED
+  BOOKING_CONFIRMED
+  BOOKING_REJECTED
+  BOOKING_CANCELLED
+  BOOKING_IN_PROGRESS
+  BOOKING_COMPLETED
+  PAYMENT_SUCCESSFUL
+  PAYMENT_FAILED
+  PAYMENT_REFUNDED
+  REVIEW_RECEIVED
+  SYSTEM_ALERT
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id          String   @id @default(cuid())
+  clerkUserId String   @unique
+  name        String?
+  email       String   @unique
+  phone       String?
+  role        Role?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  services      Service[]      @relation("ProviderServices")
+  bookings      Booking[]      @relation("StudentBookings")
+  reviews       Review[]       @relation("UserReviews")
+  notifications Notification[] @relation("UserNotifications")
+  payments      Payment[]      @relation("UserPayments")
+
+  @@index([clerkUserId])
+  @@index([email])
+  @@index([role])
+  @@index([name])
+  @@index([createdAt])
+  @@index([role, createdAt])
+  @@index([role, name])
+  @@map("users")
+}
+
+model ServiceCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  services Service[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@index([isActive, name])
+  @@map("service_categories")
+}
+
+model Service {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  price           Float    @default(0)
+  durationMinutes Int      @default(30)
+  location        String?
+  capacity        Int      @default(1)
+  imageUrl        String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Category relationship
+  categoryId String?
+  category   ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Provider ownership relationship
+  providerId String?
+  provider   User?   @relation("ProviderServices", fields: [providerId], references: [id], onDelete: SetNull)
+
+  // Child entities with cascading behavior
+  availabilities ServiceAvailability[]
+  blockedPeriods ServiceBlockedPeriod[]
+  bookings       Booking[]
+  reviews        Review[]
+
+  @@index([categoryId])
+  @@index([providerId])
+  @@index([isActive])
+  @@index([price])
+  @@index([name])
+  @@index([createdAt])
+  @@index([isActive, categoryId])
+  @@index([isActive, price])
+  @@index([providerId, isActive])
+  @@index([categoryId, isActive])
+  @@map("services")
+}
+
+model ServiceAvailability {
+  id                 String    @id @default(cuid())
+  serviceId          String
+  service            Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  dayOfWeek          DayOfWeek
+  startTime          String // Format "HH:mm" (e.g., "09:00")
+  endTime            String // Format "HH:mm" (e.g., "17:00")
+  slotDuration       Int       @default(30) // Minutes per booking slot
+  maxBookingsPerSlot Int       @default(1)
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([serviceId, dayOfWeek, startTime, endTime])
+  @@index([serviceId])
+  @@index([dayOfWeek])
+  @@index([isActive])
+  @@map("service_availabilities")
+}
+
+model ServiceBlockedPeriod {
+  id        String   @id @default(cuid())
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  startDate DateTime
+  endDate   DateTime
+  startTime String? // Format "HH:mm" (e.g., "13:00")
+  endTime   String? // Format "HH:mm" (e.g., "15:00")
+  reason    String?
+  isFullDay Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([serviceId])
+  @@index([startDate, endDate])
+  @@map("service_blocked_periods")
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  bookingCode String        @unique
+  studentId   String?
+  student     User?         @relation("StudentBookings", fields: [studentId], references: [id], onDelete: SetNull)
+  serviceId   String
+  service     Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  status      BookingStatus @default(PENDING)
+  amount      Float         @default(0)
+  scheduledAt DateTime      @default(now())
+  slotTime    String? // Display label e.g., "09:00 AM - 09:30 AM"
+  location    String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  payments Payment[]
+  review   Review?
+
+  @@index([studentId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([createdAt])
+  @@index([studentId, status])
+  @@index([studentId, scheduledAt])
+  @@index([serviceId, status])
+  @@index([status, scheduledAt])
+  @@index([status, createdAt])
+  @@map("bookings")
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  paymentCode   String        @unique
+  bookingId     String
+  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?         @relation("UserPayments", fields: [userId], references: [id], onDelete: SetNull)
+  amount        Float
+  currency      String        @default("INR")
+  status        PaymentStatus @default(PENDING)
+  method        PaymentMethod @default(UPI)
+  transactionId String?       @unique // Razorpay Payment ID (pay_...)
+  orderId       String?       // Razorpay Order ID (order_...)
+  signature     String?       // Cryptographic signature from Razorpay
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([bookingId])
+  @@index([userId])
+  @@index([status])
+  @@index([transactionId])
+  @@index([orderId])
+  @@index([paidAt])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@map("payments")
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int // 1 to 5 stars
+  comment   String?
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation("UserReviews", fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([serviceId])
+  @@index([userId])
+  @@index([rating])
+  @@index([createdAt])
+  @@index([serviceId, rating])
+  @@index([rating, createdAt])
+  @@map("reviews")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType @default(SYSTEM_ALERT)
+  isRead    Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// Baseline infrastructure model for connection verification and health telemetry
+model SystemHealthCheck {
+  id        String   @id @default(cuid())
+  service   String   @default("CampusServe")
+  status    String   @default("operational")
+  timestamp DateTime @default(now())
+
+  @@map("system_health_checks")
+}
